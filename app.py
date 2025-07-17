@@ -1,3 +1,4 @@
+import asyncio
 import os
 import json
 import time
@@ -6,7 +7,7 @@ import html
 import markdown
 from PIL import Image
 from datetime import datetime
-from app_llm_cli import run_chatbot, search_vector_db_image
+from app_llm_cli import SmartApplianceAssistant, run_chatbot, run_chatbot_stream_async, search_vector_db_image
 
 
 # 페이지 설정
@@ -273,7 +274,6 @@ if send_button:
         st.session_state.is_typing = True
         st.rerun()
 
-# 봇 응답 시뮬레이션
 if st.session_state.is_typing:
     time.sleep(1)
     last_user_message = ""
@@ -286,14 +286,31 @@ if st.session_state.is_typing:
     if current_conv["image"] is not None:
         image_path = os.path.abspath(current_conv["image"])
 
-    current_conv["messages"].append(
-        {
-            "role": "assistant",
-                       "content": run_chatbot(last_user_message, image_path=image_path,  history=current_conv["messages"]),
-        }
-    )
-    st.session_state.is_typing = False
+    current_conv["messages"].append({"role": "assistant", "content": ""})
+    assistant_index = len(current_conv["messages"]) - 1
+
+    # 실시간 스트리밍 표시용 placeholder
+    response_placeholder = st.empty()
+
+    async def stream_response():
+        streamed_text = ""
+        async for chunk in run_chatbot_stream_async(
+            last_user_message, image_path=image_path, history=current_conv["messages"][:-1]
+        ):
+            streamed_text += chunk
+            response_placeholder.markdown(streamed_text + "▌")  # 타이핑 커서 표시
+            current_conv["messages"][assistant_index]["content"] = streamed_text
+            await asyncio.sleep(0.02)  # 너무 빠르지 않게 텍스트 출력
+
+        response_placeholder.markdown(streamed_text)  # 최종 확정
+        current_conv["messages"][assistant_index]["content"] = streamed_text
+        st.session_state.is_typing = False
+
+    asyncio.run(stream_response())
     st.rerun()
+
+
+
 
 # 사이드바
 with st.sidebar:
